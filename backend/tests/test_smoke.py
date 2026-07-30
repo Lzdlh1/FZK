@@ -20,3 +20,12 @@ def test_parse_jobs_requires_auth():
     with TestClient(app) as client:
         resp = client.get("/api/parse-jobs")
         assert resp.status_code == 401
+
+
+def test_output_and_history_routes_registered():
+    """无 token 命中鉴权 401(路由已注册),而非 405 方法未注册。"""
+    jid = "00000000-0000-0000-0000-000000000000"
+    with TestClient(app) as client:
+        assert client.post(f"/api/parse-jobs/{jid}/output").status_code == 401
+        assert client.get(f"/api/parse-jobs/{jid}/output").status_code == 401
+        assert client.get(f"/api/parse-jobs/{jid}/history").status_code == 401

@@ -61,3 +61,28 @@ class ReviewRequest(BaseModel):
 
 class RerunFieldRequest(BaseModel):
     variable_id: str
+
+
+class OutputRequest(BaseModel):
+    filename: str | None = None
+
+
+class OutputResponse(BaseModel):
+    output_url: str
+    snapshot_id: str
+    filename: str
+
+
+class HistorySnapshotOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    parse_job_id: str
+    drawing_oid: str
+    template_snapshot: dict = Field(default_factory=dict)
+    db_version: dict = Field(default_factory=dict)
+    rule_version: dict = Field(default_factory=dict)
+    ai_raw_result: dict = Field(default_factory=dict)
+    manual_edits: dict = Field(default_factory=dict)
+    output_oid: str | None = None
+    created_at: datetime

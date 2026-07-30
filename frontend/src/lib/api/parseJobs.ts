@@ -4,6 +4,9 @@ import type {
   ParseJobListItem,
   ReviewRequest,
   RerunFieldResponse,
+  OutputRequest,
+  OutputResponse,
+  HistorySnapshotOut,
 } from '@/types'
 
 export const parseJobApi = {
@@ -62,6 +65,28 @@ export const parseJobApi = {
     }
     return client
       .put<ParseJobOut>(`/parse-jobs/${id}/review`, body)
+      .then((res) => res.data)
+  },
+
+  /** 触发生成 Excel 输出 */
+  output(id: string, filename?: string): Promise<OutputResponse> {
+    const body: OutputRequest = filename ? { filename } : {}
+    return client
+      .post<OutputResponse>(`/parse-jobs/${id}/output`, body)
+      .then((res) => res.data)
+  },
+
+  /** 下载生成的 Excel(xlsx blob) */
+  downloadOutput(id: string): Promise<Blob> {
+    return client
+      .get(`/parse-jobs/${id}/output`, { responseType: 'blob' })
+      .then((res) => res.data as Blob)
+  },
+
+  /** 获取历史快照 */
+  getHistory(id: string): Promise<HistorySnapshotOut> {
+    return client
+      .get<HistorySnapshotOut>(`/parse-jobs/${id}/history`)
       .then((res) => res.data)
   },
 }

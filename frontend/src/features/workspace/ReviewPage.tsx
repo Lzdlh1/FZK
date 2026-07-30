@@ -8,10 +8,12 @@ import {
   Space,
   Typography,
   message,
+  Modal,
+  Descriptions,
 } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { parseJobApi } from '@/lib/api/parseJobs'
-import type { ParseJobOut, ParseJobStatus } from '@/types'
+import type { ParseJobOut, ParseJobStatus, HistorySnapshotOut } from '@/types'
 import DrawingViewer from './DrawingViewer'
 import ReviewPanel from './ReviewPanel'
 
@@ -22,8 +24,26 @@ const STATUS_META: Record<ParseJobStatus, { color: string; text: string }> = {
   pending: { color: 'default', text: '待解析' },
   parsing: { color: 'processing', text: '解析中' },
   review: { color: 'warning', text: '待审核' },
-  done: { color: 'success', text: '已保存' },
+  done: { color: 'success', text: '已输出' },
   failed: { color: 'error', text: '失败' },
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString()
+}
+
+/** 从 ai_raw_result 中提取 fields 计数 */
+function getAiFieldCount(snapshot: HistorySnapshotOut): number {
+  const fields = (snapshot.ai_raw_result as Record<string, unknown> | null)
+    ?.fields as Record<string, unknown> | undefined
+  return fields ? Object.keys(fields).length : 0
+}
+
+/** manual_edits 摘要:返回键数 */
+function getManualEditCount(snapshot: HistorySnapshotOut): number {
+  return Object.keys(snapshot.manual_edits ?? {}).length
 }
 
 export default function ReviewPage() {
@@ -32,11 +52,14 @@ export default function ReviewPage() {
   const [loading, setLoading] = useState(true)
   const [job, setJob] = useState<ParseJobOut | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [history, setHistory] = useState<HistorySnapshotOut | null>(null)
+  const [historyModalOpen, setHistoryModalOpen] = useState(false)
 
   useEffect(() => {
     if (!id) return
     setLoading(true)
     setError(null)
+    setHistory(null)
     parseJobApi
       .get(id)
       .then((j) => {
@@ -48,6 +71,26 @@ export default function ReviewPage() {
       })
       .finally(() => setLoading(false))
   }, [id])
+
+  // status='done' 时预加载历史快照(用于展示输出时间 + 历史快照 Modal)
+  useEffect(() => {
+    if (!id || !job || job.status !== 'done') {
+      setHistory(null)
+      return
+    }
+    let cancelled = false
+    parseJobApi
+      .getHistory(id)
+      .then((snap) => {
+        if (!cancelled) setHistory(snap)
+      })
+      .catch(() => {
+        // 预加载失败静默处理,点按钮时可再试
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id, job?.status])
 
   if (loading) {
     return (
@@ -154,6 +197,9 @@ export default function ReviewPage() {
             <Text type="secondary">模板:{job.template.name}</Text>
           )}
         </Space>
+        {job.status === 'done' && (
+          <Button onClick={() => setHistoryModalOpen(true)}>查看历史快照</Button>
+        )}
       </Header>
       <Content style={{ padding: 12, overflow: 'hidden' }}>
         <div
@@ -186,10 +232,42 @@ export default function ReviewPage() {
               background: '#fff',
             }}
           >
-            <ReviewPanel job={job} onChanged={setJob} />
+            <ReviewPanel job={job} onChanged={setJob} history={history} />
           </div>
         </div>
       </Content>
+
+      <Modal
+        title="历史快照"
+        open={historyModalOpen}
+        onCancel={() => setHistoryModalOpen(false)}
+        footer={<Button onClick={() => setHistoryModalOpen(false)}>关闭</Button>}
+      >
+        {history ? (
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="输出时间">
+              {formatTime(history.created_at)}
+            </Descriptions.Item>
+            <Descriptions.Item label="快照 ID">
+              {history.id}
+            </Descriptions.Item>
+            <Descriptions.Item label="output_oid">
+              {history.output_oid ?? '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="涉及字段数">
+              {getAiFieldCount(history)}
+            </Descriptions.Item>
+            <Descriptions.Item label="手动修改数">
+              {getManualEditCount(history)}
+            </Descriptions.Item>
+            <Descriptions.Item label="图纸 OID">
+              {history.drawing_oid}
+            </Descriptions.Item>
+          </Descriptions>
+        ) : (
+          <Text type="secondary">快照加载中或暂无快照。</Text>
+        )}
+      </Modal>
     </Layout>
   )
 }

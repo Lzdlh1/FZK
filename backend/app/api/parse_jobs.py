@@ -13,12 +13,15 @@ from sqlalchemy.orm import Session
 from app.ai.gateway import AIGatewayError, make_default_gateway
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models.parse_job import ParseJob
+from app.models.parse_job import HistorySnapshot, ParseJob
 from app.models.template import Template
 from app.models.user import User
 from app.models.variable import Variable
 from app.schemas.parse_job import (
     FieldResult,
+    HistorySnapshotOut,
+    OutputRequest,
+    OutputResponse,
     ParseJobListItem,
     ParseJobOut,
     ParseJobResult,
@@ -26,6 +29,12 @@ from app.schemas.parse_job import (
     RerunFieldRequest,
 )
 from app.schemas.template import TemplateOut, VariableOut
+from app.services.output.archive import create_history_snapshot
+from app.services.output.generator import (
+    build_output_filename,
+    fill_snapshot_with_values,
+    snapshot_to_xlsx_bytes,
+)
 from app.services.parse.pipeline import (
     ParseJobNotFound,
     rerun_single_field,
@@ -280,3 +289,111 @@ def get_drawing(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=404, detail=f"原图获取失败: {exc}")
     return Response(content=data, media_type=content_type)
+
+
+_XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+
+def _latest_snapshot(db: Session, job_id: uuid.UUID) -> HistorySnapshot | None:
+    return (
+        db.query(HistorySnapshot)
+        .filter(HistorySnapshot.parse_job_id == job_id)
+        .order_by(HistorySnapshot.created_at.desc())
+        .first()
+    )
+
+
+@router.post("/parse-jobs/{job_id}/output", response_model=OutputResponse)
+async def generate_output(
+    job_id: str,
+    payload: OutputRequest | None = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """生成最终 Excel,归档快照,job.status -> done。"""
+    job = _get_job_or_404(db, job_id)
+    if job.status != "review" or not job.result:
+        raise HTTPException(
+            status_code=400, detail="任务不在审核状态或无解析结果,无法输出"
+        )
+
+    template = db.query(Template).filter(Template.id == job.template_id).first()
+    if template is None:
+        raise HTTPException(status_code=404, detail="模板不存在")
+
+    variables = load_variables_with_relations(db, job.template_id)
+    fields = (job.result or {}).get("fields") or {}
+
+    filled = fill_snapshot_with_values(template.univer_snapshot or {}, variables, fields)
+    xlsx_bytes = snapshot_to_xlsx_bytes(filled)
+
+    custom_name = payload.filename if payload else None
+    filename = build_output_filename(job.drawing_name, custom_name)
+    oid = make_oid(filename, _XLSX_MEDIA_TYPE)
+
+    storage = get_storage()
+    try:
+        await asyncio.to_thread(storage.upload_bytes, oid, xlsx_bytes, _XLSX_MEDIA_TYPE)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"输出文件存储失败: {exc}")
+
+    snapshot = create_history_snapshot(db, job, template, oid)
+    job.status = "done"
+    db.commit()
+    db.refresh(snapshot)
+
+    return OutputResponse(
+        output_url=f"/api/parse-jobs/{job_id}/output",
+        snapshot_id=str(snapshot.id),
+        filename=filename,
+    )
+
+
+@router.get("/parse-jobs/{job_id}/output")
+def get_output(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """下载已生成的 Excel 二进制流;未输出则 404。"""
+    job = _get_job_or_404(db, job_id)
+    snapshot = _latest_snapshot(db, job.id)
+    if snapshot is None or not snapshot.output_oid:
+        raise HTTPException(status_code=404, detail="尚未生成输出文件")
+    storage = get_storage()
+    try:
+        data, _ = storage.get_bytes(snapshot.output_oid)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail=f"输出文件获取失败: {exc}")
+    return Response(
+        content=data,
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="output.xlsx"'},
+    )
+
+
+@router.get("/parse-jobs/{job_id}/history", response_model=HistorySnapshotOut)
+def get_history(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """按 parse_job_id 查最近一条 HistorySnapshot;无则 404。"""
+    job = _get_job_or_404(db, job_id)
+    snapshot = _latest_snapshot(db, job.id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="无历史快照")
+    return HistorySnapshotOut(
+        id=str(snapshot.id),
+        parse_job_id=str(snapshot.parse_job_id),
+        drawing_oid=snapshot.drawing_oid,
+        template_snapshot=snapshot.template_snapshot,
+        db_version=snapshot.db_version,
+        rule_version=snapshot.rule_version,
+        ai_raw_result=snapshot.ai_raw_result,
+        manual_edits=snapshot.manual_edits,
+        output_oid=snapshot.output_oid,
+        created_at=snapshot.created_at,
+    )

@@ -10,6 +10,7 @@ import {
   message,
   Typography,
   Alert,
+  Modal,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { parseJobApi } from '@/lib/api/parseJobs'
@@ -18,6 +19,7 @@ import type {
   FieldResult,
   TemplateVariable,
   ParseJobResult,
+  HistorySnapshotOut,
 } from '@/types'
 
 const { Text } = Typography
@@ -43,6 +45,7 @@ const STATUS_TEXT: Record<string, string> = {
 interface ReviewPanelProps {
   job: ParseJobOut
   onChanged: (job: ParseJobOut) => void
+  history?: HistorySnapshotOut | null
 }
 
 interface FieldRow {
@@ -67,7 +70,13 @@ function formatValue(value: unknown): string {
   }
 }
 
-export default function ReviewPanel({ job, onChanged }: ReviewPanelProps) {
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString()
+}
+
+export default function ReviewPanel({ job, onChanged, history }: ReviewPanelProps) {
   const templateVars = job.template?.variables ?? []
 
   /** 本地修改的字段值:name -> value */
@@ -78,6 +87,9 @@ export default function ReviewPanel({ job, onChanged }: ReviewPanelProps) {
   )
   const [saving, setSaving] = useState(false)
   const [rerunning, setRerunning] = useState<Record<string, boolean>>({})
+  const [outputting, setOutputting] = useState(false)
+  const [filenameModalOpen, setFilenameModalOpen] = useState(false)
+  const [filename, setFilename] = useState('')
 
   const rows: FieldRow[] = useMemo(() => {
     const fields = job.result?.fields ?? {}
@@ -151,6 +163,60 @@ export default function ReviewPanel({ job, onChanged }: ReviewPanelProps) {
       message.error(msg)
     } finally {
       setSaving(false)
+    }
+  }
+
+  /** 点击"确认输出"/"重新输出":先保存未保存的审核,再弹文件名 Modal */
+  const handleOutputClick = async () => {
+    if (hasEdits) {
+      setSaving(true)
+      try {
+        const updated = await parseJobApi.review(
+          job.id,
+          edits,
+          Array.from(manualOverrides)
+        )
+        onChanged(updated)
+        setEdits({})
+        setManualOverrides(new Set())
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : '保存审核失败,无法输出'
+        message.error(msg)
+        return
+      } finally {
+        setSaving(false)
+      }
+    }
+    setFilename('')
+    setFilenameModalOpen(true)
+  }
+
+  /** 确认输出:调 output 生成,再下载 xlsx */
+  const handleOutputConfirm = async () => {
+    setOutputting(true)
+    try {
+      const trimmed = filename.trim()
+      const res = await parseJobApi.output(job.id, trimmed || undefined)
+      const blob = await parseJobApi.downloadOutput(job.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = res.filename || trimmed || `${job.drawing_name || job.id}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      message.success('已输出工艺辅助卡')
+      setFilenameModalOpen(false)
+      setFilename('')
+      // 刷新 job(状态变 done)
+      const refreshed = await parseJobApi.get(job.id)
+      onChanged(refreshed)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '输出失败'
+      message.error(msg)
+    } finally {
+      setOutputting(false)
     }
   }
 
@@ -326,15 +392,46 @@ export default function ReviewPanel({ job, onChanged }: ReviewPanelProps) {
             有 {Object.keys(edits).length} 项未保存修改
           </Text>
         )}
+        {job.status === 'done' && history?.created_at && (
+          <Tooltip title={`输出时间:${history.created_at}`}>
+            <Tag color="success">已输出 · {formatTime(history.created_at)}</Tag>
+          </Tooltip>
+        )}
         <Button onClick={handleSave} loading={saving} disabled={!hasEdits}>
           保存审核
         </Button>
-        <Tooltip title="输出功能在 1e 阶段实现">
-          <Button type="primary" disabled>
-            确认输出
-          </Button>
-        </Tooltip>
+        <Button
+          type="primary"
+          loading={outputting || saving}
+          onClick={handleOutputClick}
+        >
+          {job.status === 'done' ? '重新输出' : '确认输出'}
+        </Button>
       </div>
+
+      <Modal
+        title={job.status === 'done' ? '重新输出工艺辅助卡' : '确认输出工艺辅助卡'}
+        open={filenameModalOpen}
+        onOk={handleOutputConfirm}
+        onCancel={() => setFilenameModalOpen(false)}
+        confirmLoading={outputting}
+        okText="输出并下载"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <div style={{ marginBottom: 8 }}>
+          <Text type="secondary">
+            可指定文件名,留空则使用默认名(图纸名 + 工艺辅助卡)。
+          </Text>
+        </div>
+        <Input
+          placeholder={`默认:${job.drawing_name || '图纸'}+工艺辅助卡`}
+          value={filename}
+          onChange={(e) => setFilename(e.target.value)}
+          onPressEnter={handleOutputConfirm}
+          autoFocus
+        />
+      </Modal>
     </div>
   )
 }

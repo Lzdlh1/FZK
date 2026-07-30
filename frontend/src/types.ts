@@ -278,3 +278,29 @@ export interface ReviewRequest {
 export interface RerunFieldResponse {
   field: FieldResult
 }
+
+/** 输出请求体 */
+export interface OutputRequest {
+  filename?: string
+}
+
+/** 输出响应 */
+export interface OutputResponse {
+  output_url: string
+  snapshot_id: string
+  filename: string
+}
+
+/** 历史快照输出 */
+export interface HistorySnapshotOut {
+  id: string
+  parse_job_id: string
+  drawing_oid: string
+  template_snapshot: Record<string, unknown>
+  db_version: Record<string, unknown>
+  rule_version: Record<string, unknown>
+  ai_raw_result: Record<string, unknown>
+  manual_edits: Record<string, unknown>
+  output_oid: string | null
+  created_at: string
+}
