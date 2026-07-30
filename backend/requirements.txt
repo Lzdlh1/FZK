@@ -15,3 +15,5 @@ pillow
 minio
 boto3
 python-dotenv
+openpyxl
+python-docx

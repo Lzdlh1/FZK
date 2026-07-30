@@ -3,6 +3,11 @@ import { Result, Button } from 'antd'
 import LoginPage from '@/features/auth/LoginPage'
 import ProtectedRoute from '@/features/auth/ProtectedRoute'
 import WorkspacePage from '@/features/workspace/WorkspacePage'
+import ParseJobsListPage from '@/features/workspace/ParseJobsListPage'
+import NewParseJobPage from '@/features/workspace/NewParseJobPage'
+import ReviewPage from '@/features/workspace/ReviewPage'
+import TemplateListPage from '@/features/designer/TemplateListPage'
+import DesignerPage from '@/features/designer/DesignerPage'
 
 function NotFound() {
   return (
@@ -27,6 +32,12 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Navigate to="/workspace" replace />} />
           <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/workspace/new" element={<NewParseJobPage />} />
+          <Route path="/parse-jobs" element={<ParseJobsListPage />} />
+          <Route path="/parse-jobs/:id/review" element={<ReviewPage />} />
+          <Route path="/templates" element={<TemplateListPage />} />
+          <Route path="/designer" element={<DesignerPage />} />
+          <Route path="/designer/:templateId" element={<DesignerPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

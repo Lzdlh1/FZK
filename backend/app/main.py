@@ -23,10 +23,21 @@ async def lifespan(app: FastAPI):
                 admin = User(name="admin", password_hash=hash_password("admin"), role="admin")
                 db.add(admin)
                 db.commit()
+
+            from app.services.seed import seed_preset_rules
+
+            seed_preset_rules(db)
         finally:
             db.close()
     except Exception as exc:  # noqa: BLE001
-        print(f"[startup] 初始化跳过: {exc}")
+        print(f"[startup] 数据库初始化跳过: {exc}")
+    # MinIO bucket 自检(失败不阻断启动)
+    try:
+        from app.services.storage import get_storage
+
+        get_storage().ensure_bucket()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[startup] MinIO bucket 初始化跳过: {exc}")
     yield
 
 

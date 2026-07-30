@@ -1,4 +1,4 @@
-import { Layout, Card, Button, Space, Typography } from 'antd'
+import { Layout, Card, Button, Space, Typography, Row, Col } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/store/auth'
 
@@ -36,10 +36,42 @@ export default function WorkspacePage() {
         </Space>
       </Header>
       <Content style={{ padding: 24 }}>
-        <Card>
-          <Title level={3}>工艺卡工作台 - 待实现(1b 阶段)</Title>
-          <Text type="secondary">该页面将在 1b 阶段实现具体功能。</Text>
-        </Card>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} sm={12} md={8}>
+            <Card
+              title="新建解析任务"
+              hoverable
+              onClick={() => navigate('/workspace/new')}
+              style={{ height: '100%' }}
+            >
+              <Text type="secondary">
+                上传图纸并选择模板,自动识别线束参数。
+              </Text>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8}>
+            <Card
+              title="任务列表"
+              hoverable
+              onClick={() => navigate('/parse-jobs')}
+              style={{ height: '100%' }}
+            >
+              <Text type="secondary">
+                查看历史解析任务,进入审核工作台校对识别结果。
+              </Text>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8}>
+            <Card
+              title="前往模板设计"
+              hoverable
+              onClick={() => navigate('/templates')}
+              style={{ height: '100%' }}
+            >
+              <Text type="secondary">管理变量模板与公式定义。</Text>
+            </Card>
+          </Col>
+        </Row>
       </Content>
     </Layout>
   )
