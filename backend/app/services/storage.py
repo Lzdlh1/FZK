@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,13 @@ class LocalStorage:
     def __init__(self, **kwargs: Any) -> None:
         settings = get_settings()
         self.bucket = kwargs.get("bucket") or settings.minio_bucket
-        self._base_dir = Path(f"/tmp/{self.bucket}")
+        # 桌面打包模式:对象写入持久化数据目录(data/),跨启动保留;
+        # 开发模式:沿用 /tmp,与历史行为一致。
+        if getattr(sys, "frozen", False):
+            base = settings.data_dir / "objects"
+        else:
+            base = Path(f"/tmp/{self.bucket}")
+        self._base_dir = base
         self.ensure_bucket()
 
     def ensure_bucket(self) -> None:
