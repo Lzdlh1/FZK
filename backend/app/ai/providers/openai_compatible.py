@@ -36,14 +36,48 @@ def _bytes_to_data_url(data: bytes) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 
+def _clean_api_key(key: str | None) -> str:
+    """清洗 API key,避免含换行/引号/不可见字符导致 HTTP header 构造失败。
+
+    报错 "egal header value b'Bearer..." 即 key 含 \\n 等非法字符。
+    """
+    if not key:
+        return ""
+    # 去 BOM、首尾空白与引号、内部换行/制表符
+    k = key.replace("\ufeff", "").strip().strip('"').strip("'")
+    k = "".join(ch for ch in k if ch not in "\r\n\t\v\f")
+    return k.strip()
+
+
+def _clean_endpoint(endpoint: str | None) -> str:
+    """清洗并补全 endpoint 为完整 chat completions URL。
+
+    用户常只填到 /v1 或带尾部斜杠/引号;补全到 /chat/completions。
+    """
+    if not endpoint:
+        return ""
+    ep = endpoint.replace("\ufeff", "").strip().strip('"').strip("'").rstrip("/")
+    # 已指向 chat/completions:直接用
+    if ep.endswith("/chat/completions"):
+        return ep
+    # 指向 /v1 或 /v1/:补全
+    if ep.endswith("/v1"):
+        return ep + "/chat/completions"
+    # 其它情况:尝试补全(末尾不是已知路径则加 /v1/chat/completions)
+    return ep + "/v1/chat/completions"
+
+
 class OpenAICompatibleProvider:
     """OpenAI 兼容端点的 provider 实现。"""
 
     def __init__(self, name: str, endpoint: str, api_key: str, model: str, weight: int = 1):
         self.name = name
-        self.endpoint = endpoint
-        self.api_key = api_key
-        self.model = model
+        # endpoint:去首尾空白/引号/BOM,补全为完整 chat completions URL(用户常只填到 /v1)
+        self.endpoint = _clean_endpoint(endpoint)
+        # api_key:去首尾空白/换行/引号/BOM 与不可见字符,避免污染 HTTP header
+        # (报错 "egal header value b'Bearer" 即 key 含 \n 等非法字符)
+        self.api_key = _clean_api_key(api_key)
+        self.model = (model or "").strip()
         self.weight = weight
         self.healthy: bool = True
         self.last_check: datetime | None = None
@@ -154,20 +188,38 @@ class OpenAICompatibleProvider:
 
     async def extract(self, req: ExtractionRequest) -> ExtractionResponse:
         messages = self._build_messages(req)
-        payload = {
+        base_payload = {
             "model": self.model,
             "messages": messages,
             "temperature": 0,
-            "response_format": {"type": "json_object"},
         }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         start = time.perf_counter()
+
+        # response_format 降级策略:
+        # 先带 {"type":"json_object"} 约束输出;很多中转站/国产网关不支持该字段
+        # (报错形如"type参数非法,取值范围['text']"),此时去掉它重试一次,
+        # 靠 system prompt 的"严格只输出 JSON"约束 + _parse_content_json 容错解析兜底。
+        data = None
+        last_error = None
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(self.endpoint, json=payload, headers=headers)
+            for use_format in (True, False):
+                payload = dict(base_payload)
+                if use_format:
+                    payload["response_format"] = {"type": "json_object"}
+                resp = await client.post(self.endpoint, json=payload, headers=headers)
+                if resp.status_code < 400:
+                    data = resp.json()
+                    break
+                last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                # 仅当带 response_format 触发 400 时,降级去掉它重试;其他错误直接抛出
+                if use_format and resp.status_code == 400:
+                    continue
+                break
+
         latency_ms = int((time.perf_counter() - start) * 1000)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"OpenAI 兼容端点返回 {resp.status_code}: {resp.text[:300]}")
-        data = resp.json()
+        if data is None:
+            raise RuntimeError(f"OpenAI 兼容端点返回 {last_error}")
 
         content = ""
         choices = data.get("choices") or []
@@ -217,17 +269,38 @@ class OpenAICompatibleProvider:
         return ExtractionResponse(fields=fields, meta=meta)
 
     async def health(self) -> bool:
-        """最小 ping:GET /models(从 chat completions 端点推断)。失败则标记不健康。"""
+        """连通性检查:发送一个最小 chat completion 请求。
+
+        之所以不用 GET /models:很多中转站/网关不支持 /models 接口,
+        但 chat completions 能正常工作。真实发一条 "ping" 消息更可靠。
+        """
         try:
-            # endpoint 形如 .../v1/chat/completions -> /v1/models
-            base = self.endpoint
-            idx = base.find("/chat/completions")
-            models_url = base[:idx] + "/models" if idx != -1 else base.rstrip("/") + "/models"
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(models_url, headers={"Authorization": f"Bearer {self.api_key}"})
-            ok = resp.status_code < 400
+            return await self.test_connection()
         except Exception:  # noqa: BLE001
-            ok = False
-        self.healthy = ok
+            self.healthy = False
+            return False
+
+    async def test_connection(self) -> bool:
+        """发送最小 chat completion 请求验证端点+key+model 可用。
+
+        成功(2xx 且有 choices)返回 True,否则抛出带状态码/响应体的 RuntimeError。
+        供「测试连通性」按钮使用,错误信息会回显给用户。
+        """
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0,
+        }
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(self.endpoint, json=payload, headers=headers)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        data = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError(f"响应中无 choices: {str(data)[:200]}")
+        self.healthy = True
         self.last_check = datetime.now(timezone.utc)
-        return ok
+        return True
