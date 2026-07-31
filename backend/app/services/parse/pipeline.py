@@ -330,6 +330,11 @@ async def run_parse_job(db: Session, job_id, gateway: AIGateway) -> dict:
         ai_fields = resp.fields or {}
         meta = dict(resp.meta or {})
         meta.setdefault("source_kind", split["source_kind"])
+        # 记录 AI 实际返回的 key 与期望变量名的差异,便于排查"解析成功但字段为空"
+        expected_names = [v.name for v in variables if v.source_type == "extract"]
+        ai_keys = list(ai_fields.keys()) if isinstance(ai_fields, dict) else []
+        meta["ai_returned_keys"] = ai_keys
+        meta["expected_field_names"] = expected_names
 
         # 6. 后处理 extract 变量
         fields_out: dict[str, dict] = {}
