@@ -17,14 +17,13 @@ export const parseJobApi = {
     drawingName?: string
   ): Promise<ParseJobOut> {
     const form = new FormData()
-    form.append('file', file)
+    // 后端字段名为 drawing(File(...)),不是 file;字段名不匹配会导致 422
+    form.append('drawing', file)
     form.append('template_id', templateId)
     if (drawingName) form.append('drawing_name', drawingName)
-    return client
-      .post<ParseJobOut>('/parse-jobs', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      .then((res) => res.data)
+    // 不要手动设 Content-Type:axios 会自动生成带 boundary 的
+    // multipart/form-data; boundary,手动设反而会丢 boundary 导致 422
+    return client.post<ParseJobOut>('/parse-jobs', form).then((res) => res.data)
   },
 
   /** 任务列表 */

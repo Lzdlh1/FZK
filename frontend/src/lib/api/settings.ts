@@ -72,10 +72,11 @@ export const databaseParamApi = {
   async importExcel(file: File): Promise<{ imported: number; skipped: number }> {
     const formData = new FormData()
     formData.append('file', file)
+    // 不要手动设 Content-Type:axios 会自动生成带 boundary 的
+    // multipart/form-data;手动设反而会丢 boundary 导致 422
     const res = await client.post<{ imported: number; skipped: number }>(
       '/settings/database-params/import',
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
+      formData
     )
     return res.data
   },
