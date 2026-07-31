@@ -1,20 +1,30 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# 直接使用 bcrypt 库,绕过 passlib 1.7.4 与 bcrypt 5.x 的不兼容
+# (passlib 已停更,其 _load_backend_mixin 在 bcrypt>=4.1 上会抛 ValueError,
+#  导致 hash/verify 全部失败)。生成的 hash 格式 $2b$ 与 passlib 一致,向后兼容。
+_BCRYPT_MAX_BYTES = 72  # bcrypt 算法的 72 字节明文长度上限
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(
+        password.encode("utf-8")[:_BCRYPT_MAX_BYTES], bcrypt.gensalt()
+    ).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(
+            plain.encode("utf-8")[:_BCRYPT_MAX_BYTES], hashed.encode("utf-8")
+        )
+    except (ValueError, TypeError):
+        return False
 
 
 def create_access_token(sub: str, expires_minutes: int | None = None) -> str:
