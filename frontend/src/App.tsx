@@ -8,6 +8,7 @@ import NewParseJobPage from '@/features/workspace/NewParseJobPage'
 import ReviewPage from '@/features/workspace/ReviewPage'
 import TemplateListPage from '@/features/designer/TemplateListPage'
 import DesignerPage from '@/features/designer/DesignerPage'
+import SettingsPage from '@/features/settings/SettingsPage'
 
 function NotFound() {
   return (
@@ -38,6 +39,7 @@ function App() {
           <Route path="/templates" element={<TemplateListPage />} />
           <Route path="/designer" element={<DesignerPage />} />
           <Route path="/designer/:templateId" element={<DesignerPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

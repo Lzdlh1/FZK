@@ -1,4 +1,5 @@
 import { Layout, Card, Button, Space, Typography, Row, Col } from 'antd'
+import { SettingOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/store/auth'
 
@@ -69,6 +70,23 @@ export default function WorkspacePage() {
               style={{ height: '100%' }}
             >
               <Text type="secondary">管理变量模板与公式定义。</Text>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8}>
+            <Card
+              title={
+                <Space>
+                  <SettingOutlined />
+                  系统设置
+                </Space>
+              }
+              hoverable
+              onClick={() => navigate('/settings')}
+              style={{ height: '100%' }}
+            >
+              <Text type="secondary">
+                配置 AI 供应商、API Key、模型型号及数据库参数。
+              </Text>
             </Card>
           </Col>
         </Row>

@@ -304,3 +304,76 @@ export interface HistorySnapshotOut {
   output_oid: string | null
   created_at: string
 }
+
+/* ===================== 设置相关 ===================== */
+
+/** AI 供应商输出 */
+export interface AIProviderOut {
+  id: string
+  name: string
+  endpoint: string
+  model: string
+  weight: number
+  healthy: boolean
+  last_check_at: string | null
+}
+
+/** AI 供应商创建请求 */
+export interface AIProviderCreate {
+  name: string
+  endpoint: string
+  api_key: string
+  model: string
+  weight?: number
+  healthy?: boolean
+}
+
+/** AI 供应商更新请求 */
+export interface AIProviderUpdate {
+  name?: string
+  endpoint?: string
+  api_key?: string
+  model?: string
+  weight?: number
+  healthy?: boolean
+}
+
+/** AI 供应商健康检查结果 */
+export interface AIProviderHealthResult {
+  id: string
+  name: string
+  healthy: boolean
+  error: string | null
+}
+
+/** 数据库参数输出 */
+export interface DatabaseParamOut {
+  id: string
+  category: string
+  model: string
+  field: string
+  value: string
+  unit: string | null
+  enabled: boolean
+  version: number
+}
+
+/** 数据库参数创建请求 */
+export interface DatabaseParamCreate {
+  category: string
+  model: string
+  field: string
+  value: string
+  unit?: string | null
+  enabled?: boolean
+}
+
+/** 数据库参数更新请求 */
+export interface DatabaseParamUpdate {
+  category?: string
+  model?: string
+  field?: string
+  value?: string
+  unit?: string | null
+  enabled?: boolean
+}
