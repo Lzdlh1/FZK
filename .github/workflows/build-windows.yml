@@ -1,8 +1,15 @@
 name: Build Windows Desktop EXE
 
 # 触发条件:
-# 1. 推送 v* 开头的 tag(正式发布,会创建 GitHub Release 并附 exe)
+# 1. 推送 v* 开头的 tag(正式发布,创建 GitHub Release 并附 exe)
 # 2. 手动触发(仅产出 artifact,不发 Release)
+#
+# 说明:GitHub 免费账户的 windows-latest runner 无法分配,
+# 故改用 ubuntu-latest。前端用宿主 Node 构建;Python/PyInstaller
+# 在 tobix/pywine 容器(Wine + Windows Python)里跑,产出的 exe
+# 与原生 Windows 构建等价。
+# 用法参考 tobix/pywine 官方:先 source /opt/mkuserwineprefix,
+# 再用 `wine py -m pip ...` / `wine py -m PyInstaller ...`。
 on:
   push:
     tags:
@@ -11,15 +18,10 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -40,29 +42,35 @@ jobs:
         run: pnpm build
 
       - name: Verify frontend dist
-        shell: pwsh
         run: |
-          if (-not (Test-Path "frontend/dist/index.html")) {
-            throw "frontend/dist/index.html 不存在,构建失败"
-          }
-          Write-Host "frontend dist OK"
+          test -f frontend/dist/index.html || { echo "frontend/dist/index.html 不存在"; exit 1; }
+          echo "frontend dist OK"
 
-      - name: Install Python deps
+      - name: Pull pywine image
+        run: docker pull tobix/pywine:3.12
+
+      - name: Install Python deps & build EXE (in pywine container)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-desktop.txt
-
-      - name: Build EXE with PyInstaller
-        run: pyinstaller fzk.spec --noconfirm
+          mkdir -p dist
+          # 把仓库挂进 pywine 容器,在 Wine(Windows Python)下安装依赖并打包。
+          # /opt/mkuserwineprefix 初始化 WINEPREFIX;之后 wine py 调用 Windows Python。
+          docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            -e HOME=/root \
+            tobix/pywine:3.12 \
+            bash -c '
+              set -e
+              . /opt/mkuserwineprefix
+              wine py -m pip install --upgrade pip
+              wine py -m pip install -r requirements-desktop.txt
+              wine py -m PyInstaller fzk.spec --noconfirm
+            '
 
       - name: Verify EXE
-        shell: pwsh
         run: |
-          if (-not (Test-Path "dist/FZK.exe")) {
-            throw "dist/FZK.exe 不存在,打包失败"
-          }
-          $size = (Get-Item "dist/FZK.exe").Length / 1MB
-          Write-Host ("FZK.exe 大小: {0:N1} MB" -f $size)
+          test -f dist/FZK.exe || { echo "dist/FZK.exe 不存在,打包失败"; exit 1; }
+          ls -lh dist/FZK.exe
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
