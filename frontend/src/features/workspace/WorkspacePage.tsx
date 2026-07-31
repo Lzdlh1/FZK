@@ -1,5 +1,5 @@
 import { Layout, Card, Button, Space, Typography, Row, Col } from 'antd'
-import { SettingOutlined } from '@ant-design/icons'
+import { SettingOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/store/auth'
 
@@ -76,6 +76,23 @@ export default function WorkspacePage() {
             <Card
               title={
                 <Space>
+                  <DatabaseOutlined />
+                  数据库参数
+                </Space>
+              }
+              hoverable
+              onClick={() => navigate('/database-params')}
+              style={{ height: '100%' }}
+            >
+              <Text type="secondary">
+                管理线束参数库，支持 Excel 批量导入导出。
+              </Text>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8}>
+            <Card
+              title={
+                <Space>
                   <SettingOutlined />
                   系统设置
                 </Space>
@@ -85,7 +102,7 @@ export default function WorkspacePage() {
               style={{ height: '100%' }}
             >
               <Text type="secondary">
-                配置 AI 供应商、API Key、模型型号及数据库参数。
+                配置 AI 供应商、API Key、模型型号。
               </Text>
             </Card>
           </Col>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -198,3 +198,131 @@ def delete_database_param(
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/database-params/export")
+def export_database_params(
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """导出全部数据库参数为 Excel 文件。"""
+    import io
+
+    from openpyxl import Workbook
+
+    rows = db.query(DatabaseParamModel).order_by(
+        DatabaseParamModel.category, DatabaseParamModel.model
+    ).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "数据库参数"
+    ws.append(["分类", "型号", "字段", "值", "单位", "启用", "版本"])
+    for row in rows:
+        ws.append([
+            row.category,
+            row.model,
+            row.field,
+            row.value,
+            row.unit or "",
+            "是" if row.enabled else "否",
+            row.version,
+        ])
+    # 设置列宽
+    for col, width in zip("ABCDEFG", [15, 15, 15, 20, 10, 8, 8]):
+        ws.column_dimensions[col].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=database_params.xlsx"},
+    )
+
+
+@router.post("/database-params/import")
+def import_database_params(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """从 Excel 文件导入数据库参数，覆盖式更新（同名同型号同字段先删后建）。"""
+    _require_admin(user)
+    import io
+
+    from openpyxl import load_workbook
+
+    content = file.file.read()
+    wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    ws = wb.active
+
+    # 读取表头，建立列索引
+    headers = [str(cell.value).strip() if cell.value else "" for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+    col_map = {}
+    for idx, h in enumerate(headers):
+        col_map[h] = idx
+
+    # 允许的表头名
+    required = ["分类", "型号", "字段", "值"]
+    for r in required:
+        if r not in col_map:
+            raise HTTPException(status_code=400, detail=f"Excel 缺少必需列: {r}")
+
+    imported = 0
+    skipped = 0
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or not row[col_map["分类"]]:
+            skipped += 1
+            continue
+        category = str(row[col_map["分类"]]).strip()
+        model = str(row[col_map["型号"]]).strip() if "型号" in col_map and row[col_map["型号"]] else ""
+        field = str(row[col_map["字段"]]).strip() if "字段" in col_map and row[col_map["字段"]] else ""
+        value = str(row[col_map["值"]]).strip() if "值" in col_map and row[col_map["值"]] else ""
+
+        unit = ""
+        if "单位" in col_map and col_map["单位"] < len(row) and row[col_map["单位"]]:
+            unit = str(row[col_map["单位"]]).strip()
+
+        enabled = True
+        if "启用" in col_map and col_map["启用"] < len(row) and row[col_map["启用"]]:
+            enabled_str = str(row[col_map["启用"]]).strip()
+            enabled = enabled_str in ("是", "true", "True", "1", "启用")
+
+        version = 1
+        if "版本" in col_map and col_map["版本"] < len(row) and row[col_map["版本"]]:
+            try:
+                version = int(row[col_map["版本"]])
+            except (TypeError, ValueError):
+                version = 1
+
+        if not all([category, model, field, value]):
+            skipped += 1
+            continue
+
+        # 覆盖式：先删同键
+        db.query(DatabaseParamModel).filter(
+            DatabaseParamModel.category == category,
+            DatabaseParamModel.model == model,
+            DatabaseParamModel.field == field,
+            DatabaseParamModel.version == version,
+        ).delete()
+
+        row_obj = DatabaseParamModel(
+            category=category,
+            model=model,
+            field=field,
+            value=value,
+            unit=unit or None,
+            enabled=enabled,
+            version=version,
+        )
+        db.add(row_obj)
+        imported += 1
+
+    db.commit()
+    return {"imported": imported, "skipped": skipped}

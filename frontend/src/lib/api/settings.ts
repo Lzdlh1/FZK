@@ -56,4 +56,27 @@ export const databaseParamApi = {
   delete(id: string): Promise<void> {
     return client.delete(`/settings/database-params/${id}`).then(() => undefined)
   },
+
+  /** 导出为 Excel 文件 */
+  async exportExcel(): Promise<void> {
+    const res = await client.get('/settings/database-params/export', { responseType: 'blob' })
+    const url = window.URL.createObjectURL(res.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'database_params.xlsx'
+    a.click()
+    window.URL.revokeObjectURL(url)
+  },
+
+  /** 从 Excel 文件导入 */
+  async importExcel(file: File): Promise<{ imported: number; skipped: number }> {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await client.post<{ imported: number; skipped: number }>(
+      '/settings/database-params/import',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+    return res.data
+  },
 }

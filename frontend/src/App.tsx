@@ -9,6 +9,7 @@ import ReviewPage from '@/features/workspace/ReviewPage'
 import TemplateListPage from '@/features/designer/TemplateListPage'
 import DesignerPage from '@/features/designer/DesignerPage'
 import SettingsPage from '@/features/settings/SettingsPage'
+import DatabaseParamsPage from '@/features/database/DatabaseParamsPage'
 
 function NotFound() {
   return (
@@ -40,6 +41,7 @@ function App() {
           <Route path="/designer" element={<DesignerPage />} />
           <Route path="/designer/:templateId" element={<DesignerPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/database-params" element={<DatabaseParamsPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

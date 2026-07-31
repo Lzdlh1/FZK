@@ -31,15 +31,12 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   ReloadOutlined,
-  DatabaseOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/store/auth'
-import { aiProviderApi, databaseParamApi } from '@/lib/api/settings'
+import { aiProviderApi } from '@/lib/api/settings'
 import type {
   AIProviderOut,
-  DatabaseParamOut,
   AIProviderCreate,
-  DatabaseParamCreate,
 } from '@/types'
 
 const { Header, Content } = Layout
@@ -124,15 +121,6 @@ export default function SettingsPage() {
                 </span>
               ),
               children: <AIProviderTab isAdmin={isAdmin} />,
-            },
-            {
-              key: 'db',
-              label: (
-                <span>
-                  <DatabaseOutlined /> 数据库参数
-                </span>
-              ),
-              children: <DatabaseParamTab isAdmin={isAdmin} />,
             },
             {
               key: 'about',
@@ -454,179 +442,6 @@ function AIProviderTab({ isAdmin }: { isAdmin: boolean }) {
               </Form.Item>
             </Col>
           </Row>
-        </Form>
-      </Modal>
-    </div>
-  )
-}
-
-/* ===================== 数据库参数 Tab ===================== */
-
-function DatabaseParamTab({ isAdmin }: { isAdmin: boolean }) {
-  const [params, setParams] = useState<DatabaseParamOut[]>([])
-  const [loading, setLoading] = useState(false)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<DatabaseParamOut | null>(null)
-  const [form] = Form.useForm()
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await databaseParamApi.list()
-      setParams(data)
-    } catch {
-      message.error('加载数据库参数失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  const handleAdd = () => {
-    setEditing(null)
-    form.resetFields()
-    form.setFieldsValue({ enabled: true })
-    setModalOpen(true)
-  }
-
-  const handleEdit = (record: DatabaseParamOut) => {
-    setEditing(record)
-    form.setFieldsValue(record)
-    setModalOpen(true)
-  }
-
-  const handleDelete = async (id: string) => {
-    try {
-      await databaseParamApi.delete(id)
-      message.success('删除成功')
-      load()
-    } catch {
-      message.error('删除失败')
-    }
-  }
-
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields()
-      if (editing) {
-        await databaseParamApi.update(editing.id, values)
-        message.success('更新成功')
-      } else {
-        await databaseParamApi.create(values as DatabaseParamCreate)
-        message.success('创建成功')
-      }
-      setModalOpen(false)
-      load()
-    } catch {
-      // 校验失败
-    }
-  }
-
-  const columns = [
-    {
-      title: '分类',
-      dataIndex: 'category',
-      key: 'category',
-      width: 120,
-      render: (v: string) => <Tag color="geekblue">{v}</Tag>,
-    },
-    {
-      title: '型号',
-      dataIndex: 'model',
-      key: 'model',
-      width: 120,
-    },
-    {
-      title: '字段',
-      dataIndex: 'field',
-      key: 'field',
-      width: 120,
-    },
-    {
-      title: '值',
-      dataIndex: 'value',
-      key: 'value',
-    },
-    {
-      title: '单位',
-      dataIndex: 'unit',
-      key: 'unit',
-      width: 80,
-      render: (v: string | null) => v ?? '-',
-    },
-    {
-      title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      width: 80,
-      render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>禁用</Tag>),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 160,
-      render: (_: unknown, record: DatabaseParamOut) =>
-        isAdmin && (
-          <Space>
-            <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-              编辑
-            </Button>
-            <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
-              <Button size="small" danger icon={<DeleteOutlined />} />
-            </Popconfirm>
-          </Space>
-        ),
-    },
-  ]
-
-  return (
-    <div>
-      <div style={{ marginBottom: 16 }}>
-        {isAdmin && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            添加参数
-          </Button>
-        )}
-      </div>
-      <Table
-        columns={columns}
-        dataSource={params}
-        rowKey="id"
-        loading={loading}
-        pagination={{ pageSize: 20 }}
-      />
-
-      <Modal
-        title={editing ? '编辑数据库参数' : '添加数据库参数'}
-        open={modalOpen}
-        onOk={handleSubmit}
-        onCancel={() => setModalOpen(false)}
-        width={500}
-        okText="保存"
-        cancelText="取消"
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item label="分类" name="category" rules={[{ required: true }]}>
-            <Input placeholder="如 端子、连接器、线材" />
-          </Form.Item>
-          <Form.Item label="型号" name="model" rules={[{ required: true }]}>
-            <Input placeholder="如 H-XQ-001" />
-          </Form.Item>
-          <Form.Item label="字段" name="field" rules={[{ required: true }]}>
-            <Input placeholder="如 额定电流、接触电阻" />
-          </Form.Item>
-          <Form.Item label="值" name="value" rules={[{ required: true }]}>
-            <Input placeholder="如 10A" />
-          </Form.Item>
-          <Form.Item label="单位" name="unit">
-            <Input placeholder="如 A、Ω、mm" />
-          </Form.Item>
-          <Form.Item label="启用" name="enabled">
-            <Switch checkedChildren="是" unCheckedChildren="否" />
-          </Form.Item>
         </Form>
       </Modal>
     </div>
