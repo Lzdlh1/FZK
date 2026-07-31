@@ -21,6 +21,7 @@ import {
   Input as SearchInput,
 } from 'antd'
 import type { UploadProps } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -148,7 +149,7 @@ export default function DatabaseParamsPage() {
   // 统计分类数
   const categories = new Set(params.map((p) => p.category))
 
-  const columns = [
+  const columns: ColumnsType<DatabaseParamOut> = [
     {
       title: '分类',
       dataIndex: 'category',
@@ -156,8 +157,7 @@ export default function DatabaseParamsPage() {
       width: 120,
       render: (v: string) => <Tag color="geekblue">{v}</Tag>,
       filters: Array.from(categories).map((c) => ({ text: c, value: c })),
-      onFilter: (value: React.ReactNode, record: DatabaseParamOut) =>
-        record.category === value,
+      onFilter: (value, record) => record.category === String(value),
     },
     {
       title: '型号',

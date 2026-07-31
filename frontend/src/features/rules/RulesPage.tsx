@@ -19,9 +19,9 @@ import {
   Col,
   Card,
   Statistic,
-  Empty,
   Divider,
 } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -29,7 +29,6 @@ import {
   ArrowLeftOutlined,
   BookOutlined,
   EyeOutlined,
-  CopyOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/store/auth'
@@ -197,7 +196,7 @@ export default function RulesPage() {
     }
   }
 
-  const columns = [
+  const columns: ColumnsType<RuleOut> = [
     {
       title: '排序',
       dataIndex: 'sort_order',
@@ -221,7 +220,7 @@ export default function RulesPage() {
         return <Tag color={c?.color ?? 'default'}>{cat}</Tag>
       },
       filters: CATEGORIES.map((c) => ({ text: c.label, value: c.value })),
-      onFilter: (value: React.ReactNode, record: RuleOut) => record.category === value,
+      onFilter: (value, record) => record.category === String(value),
     },
     {
       title: '作用域',
