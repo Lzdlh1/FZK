@@ -1,0 +1,83 @@
+name: Build Windows Desktop EXE
+
+# 触发条件:
+# 1. 推送 v* 开头的 tag(正式发布,会创建 GitHub Release 并附 exe)
+# 2. 手动触发(仅产出 artifact,不发 Release)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Build frontend (dist)
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Verify frontend dist
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "frontend/dist/index.html")) {
+            throw "frontend/dist/index.html 不存在,构建失败"
+          }
+          Write-Host "frontend dist OK"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-desktop.txt
+
+      - name: Build EXE with PyInstaller
+        run: pyinstaller fzk.spec --noconfirm
+
+      - name: Verify EXE
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/FZK.exe")) {
+            throw "dist/FZK.exe 不存在,打包失败"
+          }
+          $size = (Get-Item "dist/FZK.exe").Length / 1MB
+          Write-Host ("FZK.exe 大小: {0:N1} MB" -f $size)
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FZK-windows-exe
+          path: dist/FZK.exe
+          if-no-files-found: error
+
+      - name: Create GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/FZK.exe
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
