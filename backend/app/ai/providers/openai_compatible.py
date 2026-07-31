@@ -217,17 +217,38 @@ class OpenAICompatibleProvider:
         return ExtractionResponse(fields=fields, meta=meta)
 
     async def health(self) -> bool:
-        """最小 ping:GET /models(从 chat completions 端点推断)。失败则标记不健康。"""
+        """连通性检查:发送一个最小 chat completion 请求。
+
+        之所以不用 GET /models:很多中转站/网关不支持 /models 接口,
+        但 chat completions 能正常工作。真实发一条 "ping" 消息更可靠。
+        """
         try:
-            # endpoint 形如 .../v1/chat/completions -> /v1/models
-            base = self.endpoint
-            idx = base.find("/chat/completions")
-            models_url = base[:idx] + "/models" if idx != -1 else base.rstrip("/") + "/models"
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(models_url, headers={"Authorization": f"Bearer {self.api_key}"})
-            ok = resp.status_code < 400
+            return await self.test_connection()
         except Exception:  # noqa: BLE001
-            ok = False
-        self.healthy = ok
+            self.healthy = False
+            return False
+
+    async def test_connection(self) -> bool:
+        """发送最小 chat completion 请求验证端点+key+model 可用。
+
+        成功(2xx 且有 choices)返回 True,否则抛出带状态码/响应体的 RuntimeError。
+        供「测试连通性」按钮使用,错误信息会回显给用户。
+        """
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0,
+        }
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(self.endpoint, json=payload, headers=headers)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        data = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError(f"响应中无 choices: {str(data)[:200]}")
+        self.healthy = True
         self.last_check = datetime.now(timezone.utc)
-        return ok
+        return True

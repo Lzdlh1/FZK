@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
@@ -40,7 +41,7 @@ from app.services.parse.pipeline import (
     rerun_single_field,
     run_parse_job,
 )
-from app.services.storage import get_storage, make_oid
+from app.services.storage import _sanitize_name, get_storage, make_oid, make_storage_path
 from app.services.template_loader import load_variables_with_relations, variable_to_out
 
 logger = logging.getLogger(__name__)
@@ -126,16 +127,18 @@ async def create_parse_job(
     if not data:
         raise HTTPException(status_code=400, detail="上传文件为空")
     content_type = drawing.content_type or "application/octet-stream"
-    oid = make_oid(drawing.filename, content_type)
-    name = drawing_name or drawing.filename or oid
+    name = drawing_name or drawing.filename or "drawing"
+    # 按图纸名建子目录,附加短 uuid 保证唯一;原图用原始文件名,便于查找。
+    subfolder = f"{_sanitize_name(name)}_{uuid.uuid4().hex[:8]}"
+    drawing_oid = make_storage_path(subfolder, drawing.filename, content_type)
 
     storage = get_storage()
     try:
-        await asyncio.to_thread(storage.upload_bytes, oid, data, content_type)
+        await asyncio.to_thread(storage.upload_bytes, drawing_oid, data, content_type)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"对象存储写入失败: {exc}")
 
-    job = ParseJob(template_id=tid, drawing_oid=oid, drawing_name=name, status="pending")
+    job = ParseJob(template_id=tid, drawing_oid=drawing_oid, drawing_name=name, status="pending")
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -185,6 +188,44 @@ def get_parse_job(
 ):
     job = _get_job_or_404(db, job_id)
     return _job_out(db, job, include_template=True)
+
+
+@router.delete("/parse-jobs/{job_id}")
+def delete_parse_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """删除解析任务:连同历史快照及对象存储中的原图/输出文件一起清理。"""
+    job = _get_job_or_404(db, job_id)
+    storage = get_storage()
+
+    # 收集需要删除的对象:原图 + 各快照的输出文件
+    oids_to_delete: list[str] = []
+    if job.drawing_oid:
+        oids_to_delete.append(job.drawing_oid)
+    snapshots = (
+        db.query(HistorySnapshot)
+        .filter(HistorySnapshot.parse_job_id == job.id)
+        .all()
+    )
+    for snap in snapshots:
+        if snap.output_oid:
+            oids_to_delete.append(snap.output_oid)
+
+    # 删除 DB 记录(快照 + 任务)
+    db.query(HistorySnapshot).filter(HistorySnapshot.parse_job_id == job.id).delete()
+    db.delete(job)
+    db.commit()
+
+    # 删除存储对象(尽力删除,失败不阻断)
+    for oid in oids_to_delete:
+        try:
+            storage.delete_object(oid)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("删除对象 %s 失败: %s", oid, exc)
+
+    return {"ok": True}
 
 
 @router.post("/parse-jobs/{job_id}/run", response_model=ParseJobOut)
@@ -331,7 +372,10 @@ async def generate_output(
 
     custom_name = payload.filename if payload else None
     filename = build_output_filename(job.drawing_name, custom_name)
-    oid = make_oid(filename, _XLSX_MEDIA_TYPE)
+    # 输出辅助卡存到与原图相同的子目录下,便于一起查找。
+    # drawing_oid 形如 "<subfolder>/<file>";取其父目录作为输出子目录。
+    subfolder = str(Path(job.drawing_oid).parent) if job.drawing_oid else _sanitize_name(job.drawing_name)
+    oid = make_storage_path(subfolder, filename, _XLSX_MEDIA_TYPE)
 
     storage = get_storage()
     try:

@@ -16,6 +16,8 @@ from app.schemas.settings import (
     AIProviderCreate,
     AIProviderHealthResult,
     AIProviderOut,
+    AIProviderTestRequest,
+    AIProviderTestResult,
     AIProviderUpdate,
     DatabaseParamCreate,
     DatabaseParamOut,
@@ -129,6 +131,38 @@ async def check_ai_provider_health(
         row.last_check_at = datetime.now(timezone.utc)
     db.commit()
     return AIProviderHealthResult(id=row.id, name=row.name, healthy=ok, error=error)
+
+
+@router.post("/ai-providers/test", response_model=AIProviderTestResult)
+async def test_ai_provider(
+    body: AIProviderTestRequest,
+    _user: User = Depends(get_current_user),
+):
+    """用未保存的配置直接测试连通性(保存前验证,尤其针对中转站)。
+
+    发送一条最小 chat completion 请求;成功返回 healthy=True + 延迟。
+    """
+    import time
+
+    from app.ai.providers.openai_compatible import OpenAICompatibleProvider
+
+    provider = OpenAICompatibleProvider(
+        name=body.name or "test",
+        endpoint=body.endpoint,
+        api_key=body.api_key,
+        model=body.model,
+    )
+    error = None
+    latency_ms = None
+    start = time.perf_counter()
+    try:
+        await provider.test_connection()
+        ok = True
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        error = str(exc)
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return AIProviderTestResult(healthy=ok, error=error, latency_ms=latency_ms)
 
 
 # ===================== 数据库参数 =====================

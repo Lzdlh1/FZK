@@ -142,6 +142,7 @@ function AIProviderTab({ isAdmin }: { isAdmin: boolean }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<AIProviderOut | null>(null)
   const [healthLoading, setHealthLoading] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
   const [form] = Form.useForm()
 
   const load = useCallback(async () => {
@@ -201,6 +202,42 @@ function AIProviderTab({ isAdmin }: { isAdmin: boolean }) {
       message.error('健康检查请求失败')
     } finally {
       setHealthLoading(null)
+    }
+  }
+
+  // 用当前表单配置(未保存)直接测试连通性,便于保存前验证中转站等配置
+  const handleTestConnection = async () => {
+    try {
+      const values = await form.validateFields(['endpoint', 'api_key', 'model'])
+      setTesting(true)
+      const result = await aiProviderApi.testConnection({
+        name: values.name,
+        endpoint: values.endpoint,
+        api_key: values.api_key || '',
+        model: values.model,
+      })
+      if (result.healthy) {
+        message.success(
+          `连通性测试通过${result.latency_ms != null ? `(延迟 ${result.latency_ms}ms)` : ''}`
+        )
+      } else {
+        message.error(`连通性测试失败: ${result.error ?? '未知错误'}`)
+      }
+    } catch (e: unknown) {
+      // 表单校验失败或请求异常
+      if (e instanceof Error && e.message) {
+        message.error(`连通性测试失败: ${e.message}`)
+      } else if (
+        e &&
+        typeof e === 'object' &&
+        'errorFields' in e
+      ) {
+        message.warning('请先填写端点、API Key、模型')
+      } else {
+        message.error('连通性测试请求失败')
+      }
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -382,6 +419,22 @@ function AIProviderTab({ isAdmin }: { isAdmin: boolean }) {
         width={600}
         okText="保存"
         cancelText="取消"
+        footer={[
+          <Button key="cancel" onClick={() => setModalOpen(false)}>
+            取消
+          </Button>,
+          <Button
+            key="test"
+            loading={testing}
+            onClick={handleTestConnection}
+            style={{ marginRight: 'auto' }}
+          >
+            测试连通性
+          </Button>,
+          <Button key="save" type="primary" onClick={handleSubmit}>
+            保存
+          </Button>,
+        ]}
       >
         <Form form={form} layout="vertical">
           <Form.Item label="供应商预设" name="presetName">

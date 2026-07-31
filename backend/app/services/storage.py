@@ -16,7 +16,10 @@ from app.core.config import get_settings
 
 
 def make_oid(filename: str | None = None, content_type: str | None = None) -> str:
-    """生成对象 OID:uuid + 根据文件名/类型推断扩展名。"""
+    """生成对象 OID:uuid + 根据文件名/类型推断扩展名。
+
+    保留用于不需要按图纸分目录的旧调用点;新代码优先用 make_storage_path。
+    """
     ext = ""
     if filename:
         _, ext = os.path.splitext(filename)
@@ -31,6 +34,49 @@ def make_oid(filename: str | None = None, content_type: str | None = None) -> st
         }
         ext = ext_map.get(content_type, "")
     return f"{uuid.uuid4().hex}{ext}"
+
+
+def _sanitize_name(name: str, max_len: int = 60) -> str:
+    """把文件/图纸名清洗为安全的单层文件名片段(去路径分隔符等)。"""
+    if not name:
+        return "drawing"
+    # 去掉路径分隔符与控制字符,空格转下划线
+    bad = '/\\:*?"<>|\t\r\n'
+    cleaned = "".join("_" if c in bad else c for c in name).strip().rstrip(".")
+    cleaned = cleaned.replace(" ", "_")
+    if not cleaned:
+        cleaned = "drawing"
+    return cleaned[:max_len]
+
+
+def make_storage_path(
+    subfolder: str,
+    filename: str | None = None,
+    content_type: str | None = None,
+) -> str:
+    """生成按子目录组织的存储路径:<subfolder>/<safe_filename><ext>。
+
+    subfolder 由调用方清洗;filename 会被清洗为单层文件名。
+    返回值作为 oid 使用,既可读又便于在 data/objects 下按图纸名查找。
+    """
+    safe_folder = _sanitize_name(subfolder) if subfolder else "misc"
+    ext = ""
+    if filename:
+        _, ext = os.path.splitext(filename)
+        safe_name = _sanitize_name(os.path.splitext(filename)[0])
+    else:
+        safe_name = "file"
+    if not ext and content_type:
+        ext_map = {
+            "image/jpeg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "application/pdf": ".pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+        }
+        ext = ext_map.get(content_type, "")
+    return f"{safe_folder}/{safe_name}{ext}"
 
 
 class LocalStorage:
@@ -71,6 +117,22 @@ class LocalStorage:
         }
         content_type = ct_map.get(ext, "application/octet-stream")
         return data, content_type
+
+    def delete_object(self, oid: str) -> None:
+        """删除单个对象;oid 可能含子目录。删除后若子目录为空则一并清理。"""
+        filepath = self._base_dir / oid
+        try:
+            if filepath.is_file():
+                filepath.unlink()
+            # 清理空的子目录(只清一层,不删 objects 根)
+            parent = filepath.parent
+            if parent != self._base_dir:
+                try:
+                    parent.rmdir()
+                except OSError:
+                    pass  # 非空,保留
+        except FileNotFoundError:
+            pass
 
     def presigned_url(self, oid: str, expires: int = 3600) -> str:
         return f"/api/parse-jobs/drawing/{oid}"
@@ -134,6 +196,16 @@ class MinioStorage:
             resp.close()
             resp.release_conn()
         return data, content_type
+
+    def delete_object(self, oid: str) -> None:
+        try:
+            from minio.error import S3Error
+        except ImportError:  # 桌面打包已 exclude minio
+            return
+        try:
+            self._client.remove_object(self.bucket, oid)
+        except S3Error:
+            pass
 
     def presigned_url(self, oid: str, expires: int = 3600) -> str:
         from datetime import timedelta

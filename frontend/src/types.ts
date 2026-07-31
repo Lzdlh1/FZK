@@ -346,6 +346,21 @@ export interface AIProviderHealthResult {
   error: string | null
 }
 
+/** AI 连通性测试请求(用未保存的配置直接测试) */
+export interface AIProviderTestRequest {
+  name?: string
+  endpoint: string
+  api_key: string
+  model: string
+}
+
+/** AI 连通性测试结果 */
+export interface AIProviderTestResult {
+  healthy: boolean
+  error: string | null
+  latency_ms: number | null
+}
+
 /** 数据库参数输出 */
 export interface DatabaseParamOut {
   id: string

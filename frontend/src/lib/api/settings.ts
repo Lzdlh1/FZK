@@ -3,6 +3,8 @@ import type {
   AIProviderCreate,
   AIProviderHealthResult,
   AIProviderOut,
+  AIProviderTestRequest,
+  AIProviderTestResult,
   AIProviderUpdate,
   DatabaseParamCreate,
   DatabaseParamOut,
@@ -31,6 +33,17 @@ export const aiProviderApi = {
   checkHealth(id: string): Promise<AIProviderHealthResult> {
     return client
       .post<AIProviderHealthResult>(`/settings/ai-providers/${id}/health`)
+      .then((res) => res.data)
+  },
+
+  /** 用未保存的配置测试连通性(保存前验证,尤其针对中转站) */
+  testConnection(
+    data: AIProviderTestRequest
+  ): Promise<AIProviderTestResult> {
+    return client
+      .post<AIProviderTestResult>('/settings/ai-providers/test', data, {
+        timeout: 60000,
+      })
       .then((res) => res.data)
   },
 }

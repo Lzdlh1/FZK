@@ -4,7 +4,9 @@ import type { LoginRequest, LoginResponse } from '@/types'
 
 const client: AxiosInstance = axios.create({
   baseURL: '/api',
-  timeout: 15000,
+  // AI 解析可能耗时较长(模型响应 30-60s+),全局放宽到 120s;
+  // 长任务(如 run)在调用处再用更长的 timeout 覆盖。
+  timeout: 120000,
 })
 
 // 请求拦截器:自动携带 JWT

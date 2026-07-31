@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Layout, Table, Button, Space, Tag, Typography, message } from 'antd'
+import { Layout, Table, Button, Space, Tag, Typography, Popconfirm, message } from 'antd'
+import { DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
@@ -60,6 +61,22 @@ export default function ParseJobsListPage() {
     }
   }
 
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id)
+    try {
+      await parseJobApi.delete(id)
+      message.success('已删除任务及关联文件')
+      load()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '删除失败'
+      message.error(msg)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const columns: ColumnsType<ParseJobListItem> = [
     {
       title: '任务名',
@@ -91,7 +108,7 @@ export default function ParseJobsListPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 240,
       render: (_, r) => (
         <Space>
           {(r.status === 'review' || r.status === 'done') && (
@@ -113,6 +130,22 @@ export default function ParseJobsListPage() {
               重新解析
             </Button>
           )}
+          <Popconfirm
+            title="确定删除该任务?"
+            description="将同时删除原图与输出文件,不可恢复。"
+            onConfirm={() => handleDelete(r.id)}
+            okText="删除"
+            okButtonProps={{ danger: true }}
+            cancelText="取消"
+          >
+            <Button
+              size="small"
+              type="link"
+              danger
+              loading={deletingId === r.id}
+              icon={<DeleteOutlined />}
+            />
+          </Popconfirm>
         </Space>
       ),
     },

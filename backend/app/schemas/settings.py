@@ -80,3 +80,18 @@ class AIProviderHealthResult(BaseModel):
     name: str
     healthy: bool
     error: str | None = None
+
+
+class AIProviderTestRequest(BaseModel):
+    """连通性测试:用未保存的配置直接测试,便于保存前验证(尤其针对中转站)。"""
+
+    name: str | None = None
+    endpoint: str
+    api_key: str
+    model: str
+
+
+class AIProviderTestResult(BaseModel):
+    healthy: bool
+    error: str | None = None
+    latency_ms: int | None = None

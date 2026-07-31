@@ -36,10 +36,15 @@ export const parseJobApi = {
     return client.get<ParseJobOut>(`/parse-jobs/${id}`).then((res) => res.data)
   },
 
-  /** 同步执行解析 */
+  /** 删除任务(连同原图/输出文件) */
+  delete(id: string): Promise<void> {
+    return client.delete(`/parse-jobs/${id}`).then(() => undefined)
+  },
+
+  /** 同步执行解析(AI 调用耗时较长,单独放宽到 180s) */
   run(id: string): Promise<ParseJobOut> {
     return client
-      .post<ParseJobOut>(`/parse-jobs/${id}/run`)
+      .post<ParseJobOut>(`/parse-jobs/${id}/run`, undefined, { timeout: 180000 })
       .then((res) => res.data)
   },
 
