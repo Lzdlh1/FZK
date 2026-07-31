@@ -154,20 +154,38 @@ class OpenAICompatibleProvider:
 
     async def extract(self, req: ExtractionRequest) -> ExtractionResponse:
         messages = self._build_messages(req)
-        payload = {
+        base_payload = {
             "model": self.model,
             "messages": messages,
             "temperature": 0,
-            "response_format": {"type": "json_object"},
         }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         start = time.perf_counter()
+
+        # response_format 降级策略:
+        # 先带 {"type":"json_object"} 约束输出;很多中转站/国产网关不支持该字段
+        # (报错形如"type参数非法,取值范围['text']"),此时去掉它重试一次,
+        # 靠 system prompt 的"严格只输出 JSON"约束 + _parse_content_json 容错解析兜底。
+        data = None
+        last_error = None
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(self.endpoint, json=payload, headers=headers)
+            for use_format in (True, False):
+                payload = dict(base_payload)
+                if use_format:
+                    payload["response_format"] = {"type": "json_object"}
+                resp = await client.post(self.endpoint, json=payload, headers=headers)
+                if resp.status_code < 400:
+                    data = resp.json()
+                    break
+                last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                # 仅当带 response_format 触发 400 时,降级去掉它重试;其他错误直接抛出
+                if use_format and resp.status_code == 400:
+                    continue
+                break
+
         latency_ms = int((time.perf_counter() - start) * 1000)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"OpenAI 兼容端点返回 {resp.status_code}: {resp.text[:300]}")
-        data = resp.json()
+        if data is None:
+            raise RuntimeError(f"OpenAI 兼容端点返回 {last_error}")
 
         content = ""
         choices = data.get("choices") or []
