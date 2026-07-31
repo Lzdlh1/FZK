@@ -159,8 +159,13 @@ export default function DesignerPage() {
   }
 
   const handleNewBlank = () => {
-    setInitialSnapshot(createEmptySnapshot())
-    setSheetKey((k) => k + 1)
+    const snap = createEmptySnapshot()
+    const ok = sheetRef.current?.loadSnapshot(snap)
+    if (!ok) {
+      // loadSnapshot 不可用时回退到 key 重建
+      setInitialSnapshot(snap)
+      setSheetKey((k) => k + 1)
+    }
     message.info('已重置为空白表格')
   }
 
@@ -174,8 +179,11 @@ export default function DesignerPage() {
     if (!file) return
     try {
       const snap = await importXlsx(file)
-      setInitialSnapshot(snap)
-      setSheetKey((k) => k + 1)
+      const ok = sheetRef.current?.loadSnapshot(snap)
+      if (!ok) {
+        setInitialSnapshot(snap)
+        setSheetKey((k) => k + 1)
+      }
       message.success(`已导入 ${file.name}`)
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '导入 xlsx 失败')

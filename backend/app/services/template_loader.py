@@ -82,6 +82,7 @@ def template_to_out(
         version=template.version,
         updated_at=template.updated_at,
         owner_id=template.owner_id,
+        univer_snapshot=template.univer_snapshot,
         variables=variables,
     )
 

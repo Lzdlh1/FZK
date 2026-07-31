@@ -19,6 +19,8 @@ export interface UniverSheetHandle {
   getSnapshot: () => IUniverSnapshot | null
   getActiveSheetName: () => string | null
   getActiveCell: () => SelectedCell | null
+  /** 在不销毁 Univer 实例的前提下替换工作簿数据(用于导入 xlsx / 新建空白) */
+  loadSnapshot: (snapshot: IUniverSnapshot) => boolean
 }
 
 interface UniverSheetProps {
@@ -44,54 +46,81 @@ const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
       const container = containerRef.current
       if (!container) return
 
-      const { univer, univerAPI } = createUniver({
-        locale: LocaleType.ZH_CN,
-        locales: { zhCN: mergeLocales(zhCN) },
-        presets: [UniverSheetsCorePreset({ container })],
-      })
-      univerRef.current = univer
-      univerAPIRef.current = univerAPI
-
-      const snap = initialSnapshot ?? createEmptySnapshot()
-      // Univer createWorkbook 期望 Partial<IWorkbookData>,此处为边界转换
+      let disposed = false
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      univerAPI.createWorkbook(snap as any)
+      let univer: any = null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let univerAPI: any = null
+      let disposable: { dispose: () => void } | undefined
+      let ro: ResizeObserver | null = null
 
-      // 选中变化事件:读取当前活动单元格并回调
-      const readSelection = () => {
-        try {
-          const wb = univerAPI.getActiveWorkbook()
-          if (!wb) {
+      const MIN_W = 120
+      const MIN_H = 60
+
+      const init = () => {
+        if (disposed || univer) return
+        const rect = container.getBoundingClientRect()
+        // 容器太小(常见于窄屏 flex 被挤压)时不要初始化,
+        // 否则 Univer 内部 "column width < 0" 直接渲染失败留白。
+        if (rect.width < MIN_W || rect.height < MIN_H) return
+
+        const created = createUniver({
+          locale: LocaleType.ZH_CN,
+          locales: { zhCN: mergeLocales(zhCN) },
+          presets: [UniverSheetsCorePreset({ container })],
+        })
+        univer = created.univer
+        univerAPI = created.univerAPI
+        univerRef.current = univer
+        univerAPIRef.current = univerAPI
+
+        const snap = initialSnapshot ?? createEmptySnapshot()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        univerAPI.createWorkbook(snap as any)
+
+        // 选中变化事件:读取当前活动单元格并回调
+        const readSelection = () => {
+          try {
+            const wb = univerAPI.getActiveWorkbook()
+            if (!wb) {
+              cbRef.current?.(null)
+              return
+            }
+            const sheet = wb.getActiveSheet().getSheetName()
+            const range = wb.getActiveRange()
+            const cell = range ? range.getA1Notation() : 'A1'
+            cbRef.current?.({ sheet, cell })
+          } catch {
             cbRef.current?.(null)
-            return
           }
-          const sheet = wb.getActiveSheet().getSheetName()
-          const range = wb.getActiveRange()
-          const cell = range ? range.getA1Notation() : 'A1'
-          cbRef.current?.({ sheet, cell })
+        }
+        try {
+          disposable = univerAPI.addEvent(
+            univerAPI.Event.SelectionChanged,
+            () => readSelection()
+          )
         } catch {
-          cbRef.current?.(null)
+          // 事件 API 不可用时忽略
         }
       }
 
-      let disposable: { dispose: () => void } | undefined
-      try {
-        disposable = univerAPI.addEvent(
-          univerAPI.Event.SelectionChanged,
-          () => readSelection()
-        )
-      } catch {
-        // 事件 API 不可用时忽略,父组件可手动调用 getActiveCell
+      // 先尝试立即初始化;若容器太小则用 ResizeObserver 等待尺寸足够再初始化。
+      init()
+      if (!univer) {
+        ro = new ResizeObserver(() => init())
+        ro.observe(container)
       }
 
       return () => {
+        disposed = true
+        ro?.disconnect()
         try {
           disposable?.dispose()
         } catch {
           // ignore
         }
         try {
-          univer.dispose()
+          univer?.dispose()
         } catch {
           // ignore
         }
@@ -135,6 +164,24 @@ const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
             return { sheet, cell }
           } catch {
             return null
+          }
+        },
+        loadSnapshot(snapshot) {
+          const api = univerAPIRef.current
+          if (!api) return false
+          try {
+            // 销毁当前工作簿单元,再基于新快照重建,保持 Univer 实例本身不被销毁。
+            // 这样可避免 key 变化导致组件整体卸载/重挂(会触发 removeChild 冲突)。
+            const wb = api.getActiveWorkbook()
+            if (wb) {
+              const unitId = wb.getId()
+              api.disposeUnit(unitId)
+            }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            api.createWorkbook(snapshot as any)
+            return true
+          } catch {
+            return false
           }
         },
       }),

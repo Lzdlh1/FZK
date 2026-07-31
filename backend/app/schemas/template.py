@@ -56,6 +56,7 @@ class TemplateOut(BaseModel):
     version: int = 1
     updated_at: datetime | None = None
     owner_id: UUID | None = None
+    univer_snapshot: dict[str, Any] | None = None
     variables: list[VariableOut] = Field(default_factory=list)
 
 
