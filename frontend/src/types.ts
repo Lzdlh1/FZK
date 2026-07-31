@@ -377,3 +377,38 @@ export interface DatabaseParamUpdate {
   unit?: string | null
   enabled?: boolean
 }
+
+/* ===================== 规则相关 ===================== */
+
+/** 规则输出 */
+export interface RuleOut {
+  id: string
+  name: string
+  content: string
+  category: string
+  scope: string | null
+  enabled: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+/** 规则创建请求 */
+export interface RuleCreate {
+  name: string
+  content: string
+  category?: string
+  scope?: string | null
+  enabled?: boolean
+  sort_order?: number
+}
+
+/** 规则更新请求 */
+export interface RuleUpdate {
+  name?: string
+  content?: string
+  category?: string
+  scope?: string | null
+  enabled?: boolean
+  sort_order?: number
+}

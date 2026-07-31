@@ -1,5 +1,5 @@
 import { Layout, Card, Button, Space, Typography, Row, Col } from 'antd'
-import { SettingOutlined, DatabaseOutlined } from '@ant-design/icons'
+import { SettingOutlined, DatabaseOutlined, BookOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/store/auth'
 
@@ -86,6 +86,23 @@ export default function WorkspacePage() {
             >
               <Text type="secondary">
                 管理线束参数库，支持 Excel 批量导入导出。
+              </Text>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8}>
+            <Card
+              title={
+                <Space>
+                  <BookOutlined />
+                  AI 规则管理
+                </Space>
+              }
+              hoverable
+              onClick={() => navigate('/rules')}
+              style={{ height: '100%' }}
+            >
+              <Text type="secondary">
+                教 AI 如何识别图纸数据与图示标注，管理业务规则。
               </Text>
             </Card>
           </Col>

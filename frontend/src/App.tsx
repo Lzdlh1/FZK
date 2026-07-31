@@ -10,6 +10,7 @@ import TemplateListPage from '@/features/designer/TemplateListPage'
 import DesignerPage from '@/features/designer/DesignerPage'
 import SettingsPage from '@/features/settings/SettingsPage'
 import DatabaseParamsPage from '@/features/database/DatabaseParamsPage'
+import RulesPage from '@/features/rules/RulesPage'
 
 function NotFound() {
   return (
@@ -42,6 +43,7 @@ function App() {
           <Route path="/designer/:templateId" element={<DesignerPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/database-params" element={<DatabaseParamsPage />} />
+          <Route path="/rules" element={<RulesPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
