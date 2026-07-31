@@ -36,14 +36,48 @@ def _bytes_to_data_url(data: bytes) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 
+def _clean_api_key(key: str | None) -> str:
+    """清洗 API key,避免含换行/引号/不可见字符导致 HTTP header 构造失败。
+
+    报错 "egal header value b'Bearer..." 即 key 含 \\n 等非法字符。
+    """
+    if not key:
+        return ""
+    # 去 BOM、首尾空白与引号、内部换行/制表符
+    k = key.replace("\ufeff", "").strip().strip('"').strip("'")
+    k = "".join(ch for ch in k if ch not in "\r\n\t\v\f")
+    return k.strip()
+
+
+def _clean_endpoint(endpoint: str | None) -> str:
+    """清洗并补全 endpoint 为完整 chat completions URL。
+
+    用户常只填到 /v1 或带尾部斜杠/引号;补全到 /chat/completions。
+    """
+    if not endpoint:
+        return ""
+    ep = endpoint.replace("\ufeff", "").strip().strip('"').strip("'").rstrip("/")
+    # 已指向 chat/completions:直接用
+    if ep.endswith("/chat/completions"):
+        return ep
+    # 指向 /v1 或 /v1/:补全
+    if ep.endswith("/v1"):
+        return ep + "/chat/completions"
+    # 其它情况:尝试补全(末尾不是已知路径则加 /v1/chat/completions)
+    return ep + "/v1/chat/completions"
+
+
 class OpenAICompatibleProvider:
     """OpenAI 兼容端点的 provider 实现。"""
 
     def __init__(self, name: str, endpoint: str, api_key: str, model: str, weight: int = 1):
         self.name = name
-        self.endpoint = endpoint
-        self.api_key = api_key
-        self.model = model
+        # endpoint:去首尾空白/引号/BOM,补全为完整 chat completions URL(用户常只填到 /v1)
+        self.endpoint = _clean_endpoint(endpoint)
+        # api_key:去首尾空白/换行/引号/BOM 与不可见字符,避免污染 HTTP header
+        # (报错 "egal header value b'Bearer" 即 key 含 \n 等非法字符)
+        self.api_key = _clean_api_key(api_key)
+        self.model = (model or "").strip()
         self.weight = weight
         self.healthy: bool = True
         self.last_check: datetime | None = None
