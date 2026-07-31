@@ -1,18 +1,15 @@
-"""MinIO 对象存储封装。
+"""对象存储封装。
 
-仅做 MVP 所需的最小操作:bucket 自检、字节上传/下载、预签名 URL。
-所有方法均为同步(MinIO SDK 本身是同步的);异步调用方在线程池中执行即可。
+沙箱环境使用本地文件系统替代 MinIO；
+生产环境（有 MinIO 时）自动切换为 MinIO SDK。
 """
 
 from __future__ import annotations
 
 import os
 import uuid
+from pathlib import Path
 from typing import Any
-
-from minio import Minio
-from minio.error import S3Error
-from urllib3.response import HTTPResponse
 
 from app.core.config import get_settings
 
@@ -35,6 +32,43 @@ def make_oid(filename: str | None = None, content_type: str | None = None) -> st
     return f"{uuid.uuid4().hex}{ext}"
 
 
+class LocalStorage:
+    """本地文件系统存储，接口与 MinioStorage 一致。"""
+
+    def __init__(self, **kwargs: Any) -> None:
+        settings = get_settings()
+        self.bucket = kwargs.get("bucket") or settings.minio_bucket
+        self._base_dir = Path(f"/tmp/{self.bucket}")
+        self.ensure_bucket()
+
+    def ensure_bucket(self) -> None:
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+
+    def upload_bytes(self, oid: str, data: bytes, content_type: str) -> None:
+        filepath = self._base_dir / oid
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.write_bytes(data)
+
+    def get_bytes(self, oid: str) -> tuple[bytes, str]:
+        filepath = self._base_dir / oid
+        data = filepath.read_bytes()
+        ext = filepath.suffix.lower()
+        ct_map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+            ".pdf": "application/pdf",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
+        content_type = ct_map.get(ext, "application/octet-stream")
+        return data, content_type
+
+    def presigned_url(self, oid: str, expires: int = 3600) -> str:
+        return f"/api/parse-jobs/drawing/{oid}"
+
+
 class MinioStorage:
     """MinIO 存储的薄封装。"""
 
@@ -46,6 +80,9 @@ class MinioStorage:
         bucket: str | None = None,
         secure: bool | None = None,
     ) -> None:
+        from minio import Minio
+        from minio.error import S3Error
+
         settings = get_settings()
         self.endpoint = endpoint or settings.minio_endpoint
         self.access_key = access_key or settings.minio_access_key
@@ -60,6 +97,8 @@ class MinioStorage:
         )
 
     def ensure_bucket(self) -> None:
+        from minio.error import S3Error
+
         try:
             if not self._client.bucket_exists(self.bucket):
                 self._client.make_bucket(self.bucket)
@@ -78,7 +117,8 @@ class MinioStorage:
         )
 
     def get_bytes(self, oid: str) -> tuple[bytes, str]:
-        """返回 (bytes, content_type)。"""
+        from urllib3.response import HTTPResponse
+
         resp: HTTPResponse = self._client.get_object(self.bucket, oid)
         try:
             data = resp.read()
@@ -94,14 +134,22 @@ class MinioStorage:
         return self._client.presigned_get_object(self.bucket, oid, expires=timedelta(seconds=expires))
 
 
-_storage_singleton: MinioStorage | None = None
+_storage_singleton: LocalStorage | MinioStorage | None = None
 
 
-def get_storage() -> MinioStorage:
-    """返回单例 MinioStorage(读 config)。"""
+def get_storage() -> LocalStorage | MinioStorage:
+    """返回存储单例(读 config)。沙箱用本地文件系统，有 MinIO 时用 MinIO。"""
     global _storage_singleton
     if _storage_singleton is None:
-        _storage_singleton = MinioStorage()
+        settings = get_settings()
+        # 沙箱环境：endpoint 为 localhost 或 127.0.0.1 时用本地存储
+        if settings.minio_endpoint in ("localhost", "127.0.0.1", "local"):
+            _storage_singleton = LocalStorage()
+        else:
+            try:
+                _storage_singleton = MinioStorage()
+            except Exception:
+                _storage_singleton = LocalStorage()
     return _storage_singleton
 
 

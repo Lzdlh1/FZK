@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,8 +36,8 @@ class ParseJobResult(BaseModel):
 class ParseJobOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    template_id: str
+    id: UUID
+    template_id: UUID
     drawing_name: str
     status: str
     result: ParseJobResult | None = None
@@ -47,8 +48,8 @@ class ParseJobOut(BaseModel):
 class ParseJobListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    template_id: str
+    id: UUID
+    template_id: UUID
     drawing_name: str
     status: str
     created_at: datetime
@@ -76,8 +77,8 @@ class OutputResponse(BaseModel):
 class HistorySnapshotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    parse_job_id: str
+    id: UUID
+    parse_job_id: UUID
     drawing_oid: str
     template_snapshot: dict = Field(default_factory=dict)
     db_version: dict = Field(default_factory=dict)
