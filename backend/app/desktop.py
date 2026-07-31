@@ -29,7 +29,7 @@ _WINDOW_TITLE = "线束工艺辅助卡系统"
 _STARTUP_TIMEOUT = 60  # 秒(打包后首次启动 import 较慢,放宽)
 
 
-def _find_free_port(start: int = 18080, end: int = 18999) -> int:
+def _find_free_port(start: int = 13161, end: int = 13260) -> int:
     """在 [start, end) 范围内找一个可用端口,避免与其它实例冲突。"""
     for port in range(start, end):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -169,19 +169,23 @@ def run_desktop() -> int:
         _show_error_dialog(msg)
         return 1
 
-    # 窗口关闭回调:停止 uvicorn,让后台线程退出
-    def _on_closed():
-        if server_ref:
-            server_ref[0].should_exit = True
-
-    webview.create_window(
+    # pywebview 6.x:create_window 不再有 on_closed 参数,
+    # 改用返回的 window 对象的事件机制注册关闭回调。
+    window = webview.create_window(
         _WINDOW_TITLE,
         base_url,
         width=_WINDOW_WIDTH,
         height=_WINDOW_HEIGHT,
         min_size=(1024, 700),
-        on_closed=_on_closed,
     )
+
+    def _on_closed():
+        if server_ref:
+            server_ref[0].should_exit = True
+
+    # closing 事件:用户点关闭按钮时触发,此时还能在窗口线程里做清理
+    window.events.closing += _on_closed
+
     # Windows 默认使用 EdgeChromium(WebView2,Win10/11 自带)
     webview.start()
     # 窗口关闭后,等待服务线程结束
