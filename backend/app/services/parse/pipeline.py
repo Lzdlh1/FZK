@@ -16,7 +16,8 @@ from app.models.database_param import DatabaseParam
 from app.models.formula import Formula
 from app.models.parse_job import ParseJob
 from app.models.rule import Rule
-from app.models.variable import FewShotRef, Variable, VariablePrompt
+from app.models.learn_sample import LearnSample
+from app.models.variable import Variable, VariablePrompt
 from app.services.dag import topological_sort
 from app.services.formula.engine import FormulaError, evaluate as evaluate_formula
 from app.services.parse import postprocess as pp
@@ -86,24 +87,26 @@ def _load_rules(db: Session) -> list[str]:
     return [r.content for r in rows if r.content]
 
 
-def _load_few_shot(db: Session, variables: list[Variable]) -> list[dict]:
-    """合并所有变量的 few_shot(上限 2 个/模板,按 sort_order)。"""
-    var_ids = [v.id for v in variables if v.source_type == "extract"]
-    if not var_ids:
-        return []
-    refs = (
-        db.query(FewShotRef)
-        .filter(FewShotRef.variable_id.in_(var_ids))
-        .order_by(FewShotRef.sort_order.asc())
+def _load_learn_samples(db: Session, template_id, limit: int = 3) -> list[dict]:
+    """加载模板最近训练的 few-shot 样本(按 sort_order 倒序取 limit 个)。
+
+    样本由「AI 学习」对话界面生成(LearnSample),解析该模板时注入,
+    使 AI 的抽取逐步贴合该模板的图纸样式与字段逻辑。
+    """
+    rows = (
+        db.query(LearnSample)
+        .filter(LearnSample.template_id == template_id)
+        .order_by(LearnSample.sort_order.desc(), LearnSample.created_at.desc())
+        .limit(limit)
         .all()
     )
     storage = get_storage()
     out: list[dict] = []
-    for ref in refs[:2]:
+    for ref in rows:
         try:
             img_bytes, _ = storage.get_bytes(ref.image_oid)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("few_shot 图片加载失败 oid=%s: %s", ref.image_oid, exc)
+            logger.warning("learn 样本图片加载失败 oid=%s: %s", ref.image_oid, exc)
             continue
         out.append({"image": img_bytes, "expected_json": ref.expected_json})
     return out
@@ -314,7 +317,7 @@ async def run_parse_job(db: Session, job_id, gateway: AIGateway) -> dict:
         field_specs = _build_field_specs(variables, prompt_map)
         db_vocabulary = _build_db_vocabulary(db)
         rules = _load_rules(db)
-        few_shot = await asyncio.to_thread(_load_few_shot, db, variables)
+        few_shot = await asyncio.to_thread(_load_learn_samples, db, job.template_id)
 
         req = ExtractionRequest(
             images=images,
@@ -442,7 +445,7 @@ async def rerun_single_field(
     field_specs = _build_field_specs([variable], {variable.id: prompt} if prompt else {})
     db_vocabulary = _build_db_vocabulary(db)
     rules = _load_rules(db)
-    few_shot = await asyncio.to_thread(_load_few_shot, db, [variable])
+    few_shot = await asyncio.to_thread(_load_learn_samples, db, job.template_id)
 
     req = ExtractionRequest(
         images=split["images"],

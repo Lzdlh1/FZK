@@ -305,6 +305,34 @@ export interface HistorySnapshotOut {
   created_at: string
 }
 
+/* ===================== AI 学习(对话式训练) ===================== */
+
+/** AI 学习:一次「上传示例 → AI 尝试解析」的响应 */
+export interface LearnTryResponse {
+  image_oid: string
+  drawing_name: string
+  fields: Record<string, FieldResult>
+  meta: Record<string, unknown>
+  message?: string | null
+}
+
+/** AI 学习:训练样本(绑定模板) */
+export interface LearnSampleOut {
+  id: string
+  template_id: string
+  image_oid: string
+  expected_json: Record<string, unknown>
+  sort_order: number
+  created_at: string
+}
+
+/** AI 学习:保存样本请求体 */
+export interface LearnSampleCreate {
+  template_id: string
+  image_oid: string
+  expected_json: Record<string, unknown>
+}
+
 /* ===================== 设置相关 ===================== */
 
 /** AI 供应商输出 */

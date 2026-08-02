@@ -1,6 +1,7 @@
 from app.models.ai_provider import AIProvider
 from app.models.database_param import DatabaseParam
 from app.models.formula import Formula
+from app.models.learn_sample import LearnSample
 from app.models.parse_job import HistorySnapshot, ParseJob
 from app.models.preset_rule import PresetRule
 from app.models.rule import Rule
@@ -14,6 +15,7 @@ __all__ = [
     "FewShotRef",
     "Formula",
     "HistorySnapshot",
+    "LearnSample",
     "Mapping",
     "ParseJob",
     "PresetRule",

@@ -1,5 +1,10 @@
 import { Layout, Card, Button, Space, Typography, Row, Col } from 'antd'
-import { SettingOutlined, DatabaseOutlined, BookOutlined } from '@ant-design/icons'
+import {
+  SettingOutlined,
+  DatabaseOutlined,
+  BookOutlined,
+  RobotOutlined,
+} from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/store/auth'
 
@@ -103,6 +108,23 @@ export default function WorkspacePage() {
             >
               <Text type="secondary">
                 教 AI 如何识别图纸数据与图示标注，管理业务规则。
+              </Text>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8}>
+            <Card
+              title={
+                <Space>
+                  <RobotOutlined />
+                  AI 学习
+                </Space>
+              }
+              hoverable
+              onClick={() => navigate('/learn')}
+              style={{ height: '100%' }}
+            >
+              <Text type="secondary">
+                对话式训练：上传示例图纸纠正 AI 解析结果，逐步提升准确率。
               </Text>
             </Card>
           </Col>

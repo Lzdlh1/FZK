@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.auth import router as auth_router
 from app.api.formula import router as formula_router
+from app.api.learn import router as learn_router
 from app.api.mappings import router as mappings_router
 from app.api.parse_jobs import router as parse_jobs_router
 from app.api.preset_rules import router as preset_rules_router
@@ -20,3 +21,4 @@ api_router.include_router(preset_rules_router, prefix="/preset-rules", tags=["pr
 api_router.include_router(parse_jobs_router, tags=["parse-jobs"])
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
 api_router.include_router(rules_router, tags=["rules"])
+api_router.include_router(learn_router, prefix="/learn", tags=["learn"])
