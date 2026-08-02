@@ -158,11 +158,27 @@ class MinioStorage:
         self.secret_key = secret_key or settings.minio_secret_key
         self.bucket = bucket or settings.minio_bucket
         self.secure = secure if secure is not None else settings.minio_secure
+        # 自定义 http_client:连接超时 3s + 重试降至 1 次,
+        # 避免本机无 MinIO 时 ensure_bucket 探测卡 20 秒(urllib3 默认重试 5 次)。
+        # 读超时保持 60s,不影响正常的大文件传输;失败立即回退本地存储。
+        http_client = None
+        try:
+            import urllib3
+            from urllib3.util.retry import Retry
+
+            retry = Retry(total=0, connect=0, read=0, status=0, backoff_factor=0)
+            http_client = urllib3.PoolManager(
+                timeout=urllib3.Timeout(connect=3.0, read=60.0),
+                retries=retry,
+            )
+        except Exception:  # noqa: BLE001
+            http_client = None
         self._client = Minio(
             self.endpoint,
             access_key=self.access_key,
             secret_key=self.secret_key,
             secure=self.secure,
+            http_client=http_client,
         )
 
     def ensure_bucket(self) -> None:
@@ -226,7 +242,12 @@ def get_storage() -> LocalStorage | MinioStorage:
             _storage_singleton = LocalStorage()
         else:
             try:
-                _storage_singleton = MinioStorage()
+                s = MinioStorage()
+                # MinioStorage() 仅构造客户端、不发起网络请求,必须做一次真实
+                # 探测(ensure_bucket)确认 MinIO 可达;不可达时回退本地文件存储,
+                # 避免后续上传请求卡在连接 minio 主机上。
+                s.ensure_bucket()
+                _storage_singleton = s
             except Exception:
                 _storage_singleton = LocalStorage()
     return _storage_singleton

@@ -39,13 +39,16 @@ def _bytes_to_data_url(data: bytes) -> str:
 def _clean_api_key(key: str | None) -> str:
     """清洗 API key,避免含换行/引号/不可见字符导致 HTTP header 构造失败。
 
-    报错 "egal header value b'Bearer..." 即 key 含 \\n 等非法字符。
+    报错 "egal header value b'Bearer..." 即 key 含 \\n 等非法字符;
+    另需过滤非 latin-1 字符(中文/emoji/特殊引号),urllib3 按 latin-1 校验 header 值,
+    含此类字符同样会抛 Illegal header value。
     """
     if not key:
         return ""
     # 去 BOM、首尾空白与引号、内部换行/制表符
     k = key.replace("\ufeff", "").strip().strip('"').strip("'")
-    k = "".join(ch for ch in k if ch not in "\r\n\t\v\f")
+    # 仅保留可打印 ASCII(0x20-0x7E):过滤全部控制字符与非 latin-1 字符
+    k = "".join(ch for ch in k if 0x20 <= ord(ch) <= 0x7E)
     return k.strip()
 
 
@@ -53,10 +56,12 @@ def _clean_endpoint(endpoint: str | None) -> str:
     """清洗并补全 endpoint 为完整 chat completions URL。
 
     用户常只填到 /v1 或带尾部斜杠/引号;补全到 /chat/completions。
+    同时过滤控制字符,避免 URL 中混入换行等导致请求构造失败。
     """
     if not endpoint:
         return ""
     ep = endpoint.replace("\ufeff", "").strip().strip('"').strip("'").rstrip("/")
+    ep = "".join(ch for ch in ep if ch >= " " and ch != "\x7f")
     # 已指向 chat/completions:直接用
     if ep.endswith("/chat/completions"):
         return ep
@@ -200,9 +205,11 @@ class OpenAICompatibleProvider:
         # 先带 {"type":"json_object"} 约束输出;很多中转站/国产网关不支持该字段
         # (报错形如"type参数非法,取值范围['text']"),此时去掉它重试一次,
         # 靠 system prompt 的"严格只输出 JSON"约束 + _parse_content_json 容错解析兜底。
+        # 若去掉 response_format 后仍报同样错误,则错误来自 content 数组中的
+        # image_url 元素(该端点疑似纯文本网关,不支持多模态),给出明确提示。
         data = None
-        last_error = None
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        errors: list[str] = []
+        async with httpx.AsyncClient(timeout=90.0) as client:
             for use_format in (True, False):
                 payload = dict(base_payload)
                 if use_format:
@@ -211,7 +218,8 @@ class OpenAICompatibleProvider:
                 if resp.status_code < 400:
                     data = resp.json()
                     break
-                last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                err_text = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                errors.append(err_text)
                 # 仅当带 response_format 触发 400 时,降级去掉它重试;其他错误直接抛出
                 if use_format and resp.status_code == 400:
                     continue
@@ -219,7 +227,19 @@ class OpenAICompatibleProvider:
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         if data is None:
-            raise RuntimeError(f"OpenAI 兼容端点返回 {last_error}")
+            combined = "; ".join(errors) or "未知错误"
+            # 去掉 response_format 后仍报 type 非法 → 请求中仅剩 content 元素带 type,
+            # 即 image_url 元素不被该端点接受
+            if any(
+                "type" in e.lower() and ("非法" in e or "invalid" in e)
+                for e in errors
+            ):
+                raise RuntimeError(
+                    "该 AI 端点拒绝请求中的 type 字段(疑似不支持多模态图片 image_url 输入,"
+                    "仅接受纯文本),请更换支持视觉的模型(如 gpt-4o / qwen-vl / glm-4v),"
+                    "或确认所用中转站支持图片上传。原始错误: " + combined
+                )
+            raise RuntimeError(f"OpenAI 兼容端点返回 {combined}")
 
         content = ""
         choices = data.get("choices") or []
